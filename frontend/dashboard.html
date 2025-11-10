@@ -22,87 +22,89 @@
       </header>
 
       <main class="content-area">
-        <section id="dashboard" class="content-page active">
-          <div class="dashboard-grid">
-            <article class="widget widget-agent-graph">
-              <div class="widget-header-with-button">
-                <h3 class="widget-title">에이전트 흐름 그래프</h3>
-                <div class="widget-actions">
-                  <span class="pill pill-live" id="flow-status">동기화 중…</span>
-                  <button class="btn-secondary" id="refresh-flow">새로고침</button>
+        <div class="content-wrapper">
+          <section id="dashboard" class="content-page active">
+            <div class="dashboard-grid">
+              <article class="widget widget-agent-graph">
+                <div class="widget-header-with-button">
+                  <h3 class="widget-title">에이전트 흐름 그래프</h3>
+                  <div class="widget-actions">
+                    <span class="pill pill-live" id="flow-status">동기화 중…</span>
+                    <button class="btn-secondary" id="refresh-flow">새로고침</button>
+                  </div>
                 </div>
-              </div>
-              <div class="graph-container">
-                <div id="graph-tooltip" class="graph-tooltip hidden"></div>
-                <svg id="agent-flow-graph" role="presentation"></svg>
-              </div>
-            </article>
+                <div class="graph-container">
+                  <div id="graph-tooltip" class="graph-tooltip hidden"></div>
+                  <svg id="agent-flow-graph" role="presentation"></svg>
+                </div>
+              </article>
 
-            <article class="widget widget-stats">
-              <div class="widget-header-with-button">
-                <h3 class="widget-title">운영 개요</h3>
-                <div class="widget-actions">
-                  <button class="btn-secondary" id="refresh-dashboard">새로고침</button>
+              <article class="widget widget-stats">
+                <div class="widget-header-with-button">
+                  <h3 class="widget-title">운영 개요</h3>
+                  <div class="widget-actions">
+                    <button class="btn-secondary" id="refresh-dashboard">새로고침</button>
+                  </div>
                 </div>
-              </div>
-              <div class="stat-grid">
-                <div class="stat-card">
-                  <span class="label">총 에이전트</span>
-                  <span class="value" id="total-agents">0</span>
+                <div class="stat-grid">
+                  <div class="stat-card">
+                    <span class="label">총 에이전트</span>
+                    <span class="value" id="total-agents">0</span>
+                  </div>
+                  <div class="stat-card">
+                    <span class="label">총 룰셋</span>
+                    <span class="value" id="total-rulesets">0</span>
+                  </div>
+                  <div class="stat-card">
+                    <span class="label">정책 위반 (24시간)</span>
+                    <span class="value" id="total-violations">0</span>
+                  </div>
+                  <div class="stat-card">
+                    <span class="label">수집된 이벤트</span>
+                    <span class="value" id="total-events">0</span>
+                  </div>
                 </div>
-                <div class="stat-card">
-                  <span class="label">총 룰셋</span>
-                  <span class="value" id="total-rulesets">0</span>
+                <div class="risk-indicator" id="risk-indicator">
+                  <div class="risk-label">위험 지수</div>
+                  <div class="risk-value" id="risk-score">--</div>
+                  <div class="risk-bar">
+                    <div class="risk-bar-fill" id="risk-bar-fill"></div>
+                  </div>
                 </div>
-                <div class="stat-card">
-                  <span class="label">정책 위반 (24시간)</span>
-                  <span class="value" id="total-violations">0</span>
-                </div>
-                <div class="stat-card">
-                  <span class="label">수집된 이벤트</span>
-                  <span class="value" id="total-events">0</span>
-                </div>
-              </div>
-              <div class="risk-indicator" id="risk-indicator">
-                <div class="risk-label">위험 지수</div>
-                <div class="risk-value" id="risk-score">--</div>
-                <div class="risk-bar">
-                  <div class="risk-bar-fill" id="risk-bar-fill"></div>
-                </div>
-              </div>
-            </article>
+              </article>
 
-            <article class="widget widget-traffic-stats">
-              <div class="widget-header-with-button">
-                <h3 class="widget-title">이벤트 활동</h3>
-                <div class="widget-actions">
-                  <span class="pill" id="chart-range">최근 60분</span>
+              <article class="widget widget-traffic-stats">
+                <div class="widget-header-with-button">
+                  <h3 class="widget-title">이벤트 활동</h3>
+                  <div class="widget-actions">
+                    <span class="pill" id="chart-range">최근 60분</span>
+                  </div>
                 </div>
-              </div>
-              <canvas id="events-chart" height="220"></canvas>
-            </article>
+                <canvas id="events-chart" height="220"></canvas>
+              </article>
 
-            <article class="widget widget-agent-status">
-              <div class="widget-header-with-button">
-                <h3 class="widget-title">에이전트 상태</h3>
-                <div class="widget-actions">
-                  <a class="btn-secondary" href="agents/agents.html">에이전트 관리</a>
+              <article class="widget widget-agent-status">
+                <div class="widget-header-with-button">
+                  <h3 class="widget-title">에이전트 상태</h3>
+                  <div class="widget-actions">
+                    <a class="btn-secondary" href="agents/agents.html">에이전트 관리</a>
+                  </div>
                 </div>
-              </div>
-              <ul class="agent-status-list" id="agent-status-list"></ul>
-            </article>
+                <ul class="agent-status-list" id="agent-status-list"></ul>
+              </article>
 
-            <article class="widget widget-recent-logs">
-              <div class="widget-header-with-button">
-                <h3 class="widget-title">최근 정책 로그</h3>
-                <div class="widget-actions">
-                  <a class="btn-primary" href="logs/logs.html">로그 탐색기 열기</a>
+              <article class="widget widget-recent-logs">
+                <div class="widget-header-with-button">
+                  <h3 class="widget-title">최근 정책 로그</h3>
+                  <div class="widget-actions">
+                    <a class="btn-primary" href="logs/logs.html">로그 탐색기 열기</a>
+                  </div>
                 </div>
-              </div>
-              <div class="log-list" id="dashboard-log-list"></div>
-            </article>
-          </div>
-        </section>
+                <div class="log-list" id="dashboard-log-list"></div>
+              </article>
+            </div>
+          </section>
+        </div>
       </main>
     </div>
   </body>
