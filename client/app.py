@@ -1,16 +1,14 @@
 import asyncio
 import contextlib
 import os
-import secrets
-import threading
 import uuid
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import List
 
 import requests
-from fastapi import FastAPI, Header, HTTPException, Request, Response, status
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -20,13 +18,6 @@ STATIC_DIR = BASE_DIR / "static"
 
 ORCHESTRATOR_RPC_URL = os.getenv("ORCHESTRATOR_RPC_URL", "http://localhost:10000/").rstrip("/") + "/"
 JWT_SERVER_URL = os.getenv("JWT_SERVER_URL", "http://localhost:8011").rstrip("/")
-SESSION_COOKIE_NAME = os.getenv("SESSION_COOKIE_NAME", "chat_session")
-SESSION_COOKIE_SECURE = os.getenv("SESSION_COOKIE_SECURE", "false").lower() in {
-    "1",
-    "true",
-    "yes",
-}
-SESSION_COOKIE_MAX_AGE = int(os.getenv("SESSION_COOKIE_MAX_AGE", "3600"))
 
 app = FastAPI(title="Orchestrator Chat Client")
 app.add_middleware(
@@ -69,75 +60,9 @@ class LoginResponse(BaseModel):
     user: UserProfile
 
 
-class SessionData(BaseModel):
-    token: str
-    user: UserProfile
-
-
-SessionStore = Dict[str, SessionData]
-_SESSIONS: SessionStore = {}
-_SESSION_LOCK = threading.Lock()
-
-
-def _session_cookie_kwargs() -> dict:
-    return {
-        "httponly": True,
-        "secure": SESSION_COOKIE_SECURE,
-        "samesite": "lax",
-        "max_age": SESSION_COOKIE_MAX_AGE,
-        "path": "/",
-    }
-
-
-def _set_session(session_id: str, data: SessionData) -> None:
-    with _SESSION_LOCK:
-        _SESSIONS[session_id] = data
-
-
-def _get_session(session_id: str) -> SessionData | None:
-    with _SESSION_LOCK:
-        return _SESSIONS.get(session_id)
-
-
-def _delete_session(session_id: str) -> None:
-    with _SESSION_LOCK:
-        _SESSIONS.pop(session_id, None)
-
-
-def _extract_session(request: Request) -> Tuple[str, SessionData | None]:
-    session_id = request.cookies.get(SESSION_COOKIE_NAME, "")
-    if not session_id:
-        return "", None
-    return session_id, _get_session(session_id)
-
-
-def _require_session(request: Request) -> Tuple[str, SessionData]:
-    session_id, session = _extract_session(request)
-    if not session:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="로그인이 필요합니다.")
-    return session_id, session
-
-
-def _clear_session_cookie(response: Response) -> None:
-    response.delete_cookie(SESSION_COOKIE_NAME, path="/")
-
-
-@app.get("/")
-async def redirect_root() -> RedirectResponse:
-    return RedirectResponse(url="/login", status_code=status.HTTP_307_TEMPORARY_REDIRECT)
-
-
-@app.get("/login", response_class=FileResponse)
-async def serve_login() -> FileResponse:
-    return FileResponse(PUBLIC_DIR / "login.html")
-
-
-@app.get("/chat")
-async def serve_chat(request: Request) -> Response:
-    _, session = _extract_session(request)
-    if not session:
-        return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
-    return FileResponse(PUBLIC_DIR / "chat.html")
+@app.get("/", response_class=FileResponse)
+async def serve_index() -> FileResponse:
+    return FileResponse(PUBLIC_DIR / "index.html")
 
 
 @app.get("/api/meta", response_model=MetaResponse)
@@ -255,14 +180,8 @@ def _request_jwt_profile(token: str) -> dict:
         raise HTTPException(status_code=502, detail="JWT 서버 응답이 JSON이 아닙니다") from exc
 
 
-def _issue_session(response: Response, token: str, user_profile: UserProfile) -> None:
-    session_id = secrets.token_urlsafe(32)
-    _set_session(session_id, SessionData(token=token, user=user_profile))
-    response.set_cookie(SESSION_COOKIE_NAME, session_id, **_session_cookie_kwargs())
-
-
 @app.post("/api/login", response_model=LoginResponse)
-def login(body: LoginRequest, response: Response) -> LoginResponse:
+def login(body: LoginRequest) -> LoginResponse:
     token_payload = _request_jwt_token(body.email, body.password)
     access_token = token_payload.get("access_token")
     token_type = token_payload.get("token_type", "bearer")
@@ -276,26 +195,7 @@ def login(body: LoginRequest, response: Response) -> LoginResponse:
         raise HTTPException(status_code=502, detail="JWT 서버가 사용자 정보를 반환하지 않았습니다")
 
     user_profile = UserProfile(email=email, tenants=tenants)
-    _issue_session(response, access_token, user_profile)
     return LoginResponse(access_token=access_token, token_type=token_type, user=user_profile)
-
-
-@app.post("/api/logout", status_code=status.HTTP_204_NO_CONTENT)
-def logout(request: Request, response: Response) -> None:
-    session_id, _ = _extract_session(request)
-    if session_id:
-        _delete_session(session_id)
-    _clear_session_cookie(response)
-
-
-@app.get("/api/session", response_model=LoginResponse)
-def session_info(request: Request) -> LoginResponse:
-    _, session = _require_session(request)
-    return LoginResponse(
-        access_token=session.token,
-        token_type="bearer",
-        user=session.user,
-    )
 
 
 async def _send_rpc(payload: dict) -> dict:
@@ -334,14 +234,10 @@ def _extract_token(authorization: str | None) -> str:
 
 
 @app.post("/api/chat", response_model=ChatResponse)
-async def send_message(
-    body: ChatRequest,
-    request: Request,
-    authorization: str | None = Header(default=None),
-) -> ChatResponse:
+async def send_message(body: ChatRequest, authorization: str | None = Header(default=None)) -> ChatResponse:
     token = _extract_token(authorization)
     if not token:
-        _require_session(request)
+        raise HTTPException(status_code=401, detail="로그인 후 이용해 주세요.")
 
     user_message = body.message.strip()
     if not user_message:
