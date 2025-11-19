@@ -3,6 +3,7 @@ from uuid import uuid4
 from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.events import EventQueue
 from a2a.types import Message, TextPart, Part, Role
+from google.adk.errors import AlreadyExistsError
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
@@ -11,20 +12,27 @@ logger = logging.getLogger(__name__)
 
 
 class ADKAgentExecutor(AgentExecutor):
-    def __init__(self, agent, app_name="orchestrator_app", user_id="user1", session_id="sess1"):
+    def __init__(self, agent, app_name="orchestrator_app", user_id="user1", session_id: str | None = None):
         self.agent = agent
         self.app_name = app_name
         self.user_id = user_id
-        self.session_id = session_id
+        self.session_id = session_id or uuid4().hex
+        self._session_created = False
         self.session_service = InMemorySessionService()
         self.runner = Runner(agent=self.agent, app_name=self.app_name, session_service=self.session_service)
 
     async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
         try:
             # 세션 보장
-            await self.session_service.create_session(
-                app_name=self.app_name, user_id=self.user_id, session_id=self.session_id
-            )
+            if not self._session_created:
+                try:
+                    await self.session_service.create_session(
+                        app_name=self.app_name, user_id=self.user_id, session_id=self.session_id
+                    )
+                except AlreadyExistsError:
+                    logger.debug("Session already exists; reusing existing session %s", self.session_id)
+                finally:
+                    self._session_created = True
 
             # 사용자 입력 추출
             user_input = ""
