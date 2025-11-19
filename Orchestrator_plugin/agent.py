@@ -49,7 +49,7 @@ PORT_HOST_MAP = {
     "10003": os.getenv("QUALITY_AGENT_HOST", "quality-agent"),
     "10004": os.getenv("VEHICLE_AGENT_HOST", "vehicle-agent"),
 }
-LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0"}
+LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "host.docker.internal"}
 
 
 def _rewrite_card_url_if_needed(card: AgentCard) -> AgentCard:
