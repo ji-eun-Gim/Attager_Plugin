@@ -5,6 +5,7 @@ import logging
 import httpx
 import asyncio
 from typing import List
+from urllib.parse import urlsplit, urlunsplit
 
 from google.adk.agents import LlmAgent
 from google.adk.models.lite_llm import LiteLlm
@@ -40,6 +41,49 @@ AGENT_REGISTRY_URL = os.getenv("AGENT_REGISTRY_URL", "http://localhost:8000")
 POLICY_SERVER_URL = os.getenv("POLICY_SERVER_URL", "http://localhost:8005")
 LOG_SERVER_URL = os.getenv("LOG_SERVER_URL", POLICY_SERVER_URL)
 
+# 도커 내부에서 localhost로 등록된 카드 URL을 서비스 명으로 치환하기 위한 호스트 매핑
+AGENT_INTERNAL_HOST = os.getenv("AGENT_INTERNAL_HOST")
+PORT_HOST_MAP = {
+    "10001": os.getenv("DELIVERY_AGENT_HOST", "delivery-agent"),
+    "10002": os.getenv("ITEM_AGENT_HOST", "item-agent"),
+    "10003": os.getenv("QUALITY_AGENT_HOST", "quality-agent"),
+    "10004": os.getenv("VEHICLE_AGENT_HOST", "vehicle-agent"),
+}
+LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0"}
+
+
+def _rewrite_card_url_if_needed(card: AgentCard) -> AgentCard:
+    """Container 환경에서 localhost 카드 URL을 서비스 접근용으로 보정한다."""
+
+    card_url = getattr(card, "url", None)
+    if not card_url:
+        return card
+
+    parsed = urlsplit(card_url)
+    host = parsed.hostname
+    port = parsed.port
+
+    if host not in LOOPBACK_HOSTS:
+        return card
+
+    replacement_host = AGENT_INTERNAL_HOST or PORT_HOST_MAP.get(str(port))
+    if not replacement_host:
+        return card
+
+    new_netloc = f"{replacement_host}:{port}" if port else replacement_host
+    rewritten_url = urlunsplit((parsed.scheme, new_netloc, parsed.path, parsed.query, parsed.fragment))
+
+    logger.info("카드 URL을 컨테이너 접근용으로 교체: %s -> %s", card_url, rewritten_url)
+
+    if hasattr(card, "model_copy"):
+        return card.model_copy(update={"url": rewritten_url})
+    if hasattr(card, "copy"):
+        return card.copy(update={"url": rewritten_url})
+
+    # pydantic 외 객체 대비: 속성 대입 후 반환
+    card.url = rewritten_url
+    return card
+
 
 def load_agent_cards(tool_context) -> List[str]:
     """
@@ -47,20 +91,30 @@ def load_agent_cards(tool_context) -> List[str]:
     에이전트 이름 리스트 반환
     """
     url = f"{AGENT_REGISTRY_URL.rstrip('/')}/agents"
-    resp = httpx.get(url)
-    resp.raise_for_status()
-    agents_data = resp.json()  # 레지스트리에서 내려주는 JSON 배열
+    try:
+        resp = httpx.get(url, timeout=10.0)
+        resp.raise_for_status()
+        agents_data = resp.json()  # 레지스트리에서 내려주는 JSON 배열
+    except Exception as exc:  # 네트워크 장애나 HTTP 오류 시 에이전트 실행이 끊기지 않도록 방어
+        logger.error("에이전트 카드 조회 실패: %s", exc)
+        tool_context.state["cards"] = {}
+        return []
 
     cards = {}
     for data in agents_data:
-        # ✅ dict → AgentCard 변환 (pydantic v1/v2 호환)
-        if hasattr(AgentCard, "model_validate"):   # pydantic v2
-            card = AgentCard.model_validate(data)
-        else:  # pydantic v1
-            card = AgentCard.parse_obj(data)
+        try:
+            # ✅ dict → AgentCard 변환 (pydantic v1/v2 호환)
+            if hasattr(AgentCard, "model_validate"):   # pydantic v2
+                card = AgentCard.model_validate(data)
+            else:  # pydantic v1
+                card = AgentCard.parse_obj(data)
 
-        name = getattr(card, "name", None) or card.url or "unknown_agent"
-        cards[name] = card
+            card = _rewrite_card_url_if_needed(card)
+
+            name = getattr(card, "name", None) or card.url or "unknown_agent"
+            cards[name] = card
+        except Exception as exc:
+            logger.warning("잘못된 에이전트 카드 데이터 무시: %s", exc)
 
     tool_context.state["cards"] = cards
     return list(cards.keys())
@@ -78,24 +132,28 @@ async def call_remote_agent(tool_context, agent_name: str, task: str):
         return {"error": f"Agent {agent_name} not found"}
 
     # 2. 클라이언트 준비
-    async with httpx.AsyncClient(timeout=30.0) as httpx_client:
-        from a2a.client import A2AClient
-        client = A2AClient(httpx_client=httpx_client, agent_card=card)
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as httpx_client:
+            from a2a.client import A2AClient
+            client = A2AClient(httpx_client=httpx_client, agent_card=card)
 
-        # 3. 요청 메시지 (messageId 필드명 주의)
-        message = Message(
-            role=Role.user,
-            parts=[Part(root=TextPart(text=task))],
-            messageId=uuid.uuid4().hex,  # ✅ message_id → messageId
-        )
-        send_params = MessageSendParams(message=message)
-        request = SendMessageRequest(id=str(uuid.uuid4()), params=send_params)
+            # 3. 요청 메시지 (messageId 필드명 주의)
+            message = Message(
+                role=Role.user,
+                parts=[Part(root=TextPart(text=task))],
+                messageId=uuid.uuid4().hex,  # ✅ message_id → messageId
+            )
+            send_params = MessageSendParams(message=message)
+            request = SendMessageRequest(id=str(uuid.uuid4()), params=send_params)
 
-        # 4. 서버 호출
-        resp = await client.send_message(request)
+            # 4. 서버 호출
+            resp = await client.send_message(request)
 
-        # 5. 결과를 JSON으로 덤프
-        return resp.model_dump(mode="json", exclude_none=True)
+            # 5. 결과를 JSON으로 덤프
+            return resp.model_dump(mode="json", exclude_none=True)
+    except Exception as exc:
+        logger.error("원격 에이전트 호출 실패 (%s): %s", agent_name, exc)
+        return {"error": f"failed to call agent {agent_name}: {exc}"}
 
 # --- 3. 응답 집계 ---
 

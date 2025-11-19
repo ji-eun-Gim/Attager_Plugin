@@ -5,16 +5,21 @@
 ## 시스템 구성
 
 ### 서비스 목록
-- **Redis Database** (포트 6379): 데이터 저장소
-- **Orchestrator Agent** (포트 10000): 메인 오케스트레이터, 다른 에이전트들을 조율
+- **Agent Registry** (포트 8000): 에이전트 카드 관리
+- **Agent Registry Frontend** (포트 3000): 레지스트리 UI
+- **IAM Policy Server** (포트 8005): 정책/로그 서버
+- **IAM Frontend** (포트 8006): IAM 관리 UI
+- **Orchestrator Plugin Agent** (포트 10000): 메인 오케스트레이터, 다른 에이전트를 조율 (Docker Compose에서 기본 포함)
+- **Orchestrator Client UI** (포트 8010): 오케스트레이터 플러그인과 대화하는 독립 UI
 - **Delivery Agent** (포트 10001): 배송 데이터 관리
-- **Item Agent** (포트 10002): 아이템 데이터 관리  
+- **Item Agent** (포트 10002): 아이템 데이터 관리
 - **Quality Agent** (포트 10003): 품질 데이터 관리
 - **Vehicle Agent** (포트 10004): 차량 데이터 관리
 
 ## 실행 방법
 
 ### 1. 전체 시스템 시작
+루트 디렉토리(`/workspace/Attager_Plugin`)에서 아래 명령을 실행하면 오케스트레이터 플러그인 에이전트와 별도 클라이언트 UI까지 모든 서비스가 함께 올라갑니다.
 ```bash
 # 모든 서비스 빌드 및 시작
 docker-compose up --build
@@ -88,6 +93,12 @@ docker network inspect other-agent_agent-network
 - `REDIS_HOST`: Redis 서버 호스트 (기본값: redis, Docker에서는 redis)
 - `REDIS_PORT`: Redis 서버 포트 (기본값: 6379)
 - `OLLAMA_HOST`: Ollama 서버 호스트 (기본값: localhost, Docker에서는 host.docker.internal)
+- `GOOGLE_API_KEY`: Gemini 호출 시 사용되는 키 (없으면 로컬 LLM으로 fallback 시도)
+- `AGENT_REGISTRY_URL`: 오케스트레이터 플러그인이 에이전트 카드를 조회할 레지스트리 URL (Docker에서는 `http://agent-registry:8000`)
+- `POLICY_SERVER_URL` / `LOG_SERVER_URL`: IAM 정책/로그 서버 URL (Docker에서는 `http://policy-server:8005`)
+- `ORCHESTRATOR_RPC_URL`: 클라이언트 UI가 오케스트레이터 플러그인에 RPC로 연결할 엔드포인트 (Docker에서는 `http://orchestrator:10000/`)
+- `AGENT_INTERNAL_HOST`: 레지스트리 카드에 `localhost`가 들어 있어도 컨테이너 내부에서 접근 가능한 공통 호스트로 강제할 때 사용 (예: `host.docker.internal`)
+- `DELIVERY_AGENT_HOST` / `ITEM_AGENT_HOST` / `QUALITY_AGENT_HOST` / `VEHICLE_AGENT_HOST`: 각 포트(10001~10004)에 대응하는 서비스 이름을 덮어쓰고 싶을 때 설정. 기본값은 Compose 서비스명(`delivery-agent`, `item-agent` 등)이라 별도 설정 없이도 컨테이너 간 호출이 동작합니다.
 
 ### Ollama 서버 설정
 **중요**: Docker 컨테이너에서 호스트의 Ollama 서버(포트 11434)에 접근하기 위해 `host.docker.internal`을 사용합니다.
