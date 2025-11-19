@@ -156,4 +156,6 @@ async def send_message(body: ChatRequest) -> ChatResponse:
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("client.app:app", host="0.0.0.0", port=8010, reload=True)
+    # When executed as a script, prefer the local module path (`app:app`) so we
+    # don't depend on the parent directory name being importable as `client`.
+    uvicorn.run("app:app", host="0.0.0.0", port=8010, reload=True)
