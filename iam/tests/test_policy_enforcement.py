@@ -106,3 +106,22 @@ async def test_missing_roles_returns_clear_error(plugin):
 
     assert result is not None
     assert "role" in result.get("error", "").lower()
+
+
+@pytest.mark.asyncio
+async def test_callback_context_captures_token(plugin, capsys):
+    token = jwt.encode({"roles": ["admin"], "sub": "cbctx"}, "testsecret", algorithm="HS256")
+    callback_context = {"headers": {"Authorization": f"Bearer {token}"}}
+    tool = SimpleNamespace(name="call_remote_agent")
+
+    result = await plugin.before_tool_callback(
+        tool=tool,
+        tool_args={},
+        tool_context={},
+        callback_context=callback_context,
+    )
+
+    assert result is None
+    output = capsys.readouterr().out
+    assert "JWT 로드" in output
+    assert "cbctx" in output

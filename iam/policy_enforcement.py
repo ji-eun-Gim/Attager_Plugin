@@ -44,6 +44,7 @@ class PolicyEnforcementPlugin(BasePlugin):
         self._jwt_algorithm = os.getenv("JWT_ALGORITHM") or os.getenv("ALGORITHM") or "HS256"
         self._jwt_audience = os.getenv("JWT_AUDIENCE")
         self._last_auth_token: str | None = None
+        self._captured_token_hint: str | None = None
 
         if gemini_api_key:
             genai.configure(api_key=gemini_api_key)
@@ -123,8 +124,12 @@ class PolicyEnforcementPlugin(BasePlugin):
         tool: Any,
         tool_args: Dict[str, Any],
         tool_context: Any,
+        callback_context: Any = None,
+        **kwargs: Any,
     ) -> Optional[Dict[str, Any]]:
         """Validate tool invocations against IAM tool rules."""
+        self._capture_auth_from_context(callback_context or tool_context)
+
         if not self._policy_enabled():
             return None
 
@@ -333,7 +338,7 @@ class PolicyEnforcementPlugin(BasePlugin):
     def _capture_auth_from_context(self, callback_context: Any) -> None:
         token = self._extract_token_from_container(callback_context)
         if token:
-            self._last_auth_token = token
+            self._captured_token_hint = token
 
     def _extract_auth_token(self, tool_context: Any, tool_args: Dict[str, Any]) -> str:
         tool_args = tool_args or {}
@@ -346,6 +351,9 @@ class PolicyEnforcementPlugin(BasePlugin):
 
         candidates.append(self._extract_token_from_container(tool_context))
         candidates.append(self._extract_token_from_container(getattr(tool_context, "metadata", None)))
+
+        if self._captured_token_hint:
+            candidates.append(self._captured_token_hint)
 
         if self._last_auth_token:
             candidates.append(self._last_auth_token)
