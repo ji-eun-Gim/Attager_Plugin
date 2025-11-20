@@ -169,6 +169,22 @@ class PolicyEnforcementPlugin(BasePlugin):
 
     def _get_prompt_rules(self) -> Sequence[Dict[str, Any]]:
         rules = self.policy.get("prompt_validation_rules", []) or []
+        if not rules:
+            policies = self.policy.get("policies")
+            if isinstance(policies, dict):
+                prompt_validation = policies.get("prompt_validation") or {}
+                system_prompt = prompt_validation.get("system_prompt", "")
+                model = prompt_validation.get("model")
+                enabled = prompt_validation.get("enabled", True)
+                if system_prompt:
+                    rules = [
+                        {
+                            "system_prompt": system_prompt,
+                            "model": model,
+                            "enabled": enabled,
+                        }
+                    ]
+
         enabled_rules = []
         for rule in rules:
             enabled = rule.get("enabled", True)
@@ -179,7 +195,19 @@ class PolicyEnforcementPlugin(BasePlugin):
         return enabled_rules
 
     def _get_tool_rules(self) -> Dict[str, Dict[str, Any]]:
-        rules = self.policy.get("tool_validation_rules") or {}
+        rules = self.policy.get("tool_validation_rules")
+
+        if not rules:
+            policies = self.policy.get("policies")
+            if isinstance(policies, dict):
+                tool_validation = policies.get("tool_validation") or {}
+                enabled = tool_validation.get("enabled", True)
+                if isinstance(enabled, str):
+                    enabled = enabled.lower() not in {"false", "0", "off"}
+                if not enabled:
+                    return {}
+                rules = tool_validation.get("rules")
+
         if isinstance(rules, dict):
             return rules
         return {}

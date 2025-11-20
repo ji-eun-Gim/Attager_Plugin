@@ -180,6 +180,17 @@ async def before_tool_callback(self, *, callback_context, tool_call, **kwargs):
 }
 ```
 
+### JWT 역할 기반 테스트 방법
+
+정책이 JWT 토큰 역할에 따라 다르게 적용되는지 확인하려면 아래 테스트를 실행하세요.
+
+```bash
+pytest iam/tests/test_policy_enforcement.py
+```
+
+- `roles` 클레임에 `admin`이 포함된 토큰이면 `call_remote_agent` 툴 호출이 허용됩니다.
+- `roles`가 `admin`이 아닌 토큰이거나 역할 클레임이 없는 경우 정책에 의해 차단되며, 에러 메시지로 필요한 역할 정보를 확인할 수 있습니다.
+
 ### DeliveryAgent 정책
 
 ```python
