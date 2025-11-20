@@ -150,3 +150,28 @@ async def test_policy_logging_includes_token_and_rules(plugin, capsys):
     assert "policy-log" in output
     assert "call_remote_agent" in output
     assert "JWT 재사용" in output
+
+
+def test_fetch_policy_logs_token_with_claims(monkeypatch, policy_payload, capsys):
+    os.environ["SECRET_KEY"] = "testsecret"
+    token = jwt.encode({"roles": ["admin"], "sub": "fetch-log"}, "testsecret", algorithm="HS256")
+
+    def fake_get(url, timeout):
+        return DummyResponse(policy_payload)
+
+    monkeypatch.setattr("iam.policy_enforcement.requests.get", fake_get)
+
+    plugin = PolicyEnforcementPlugin(
+        agent_id="orchestrator",
+        gemini_api_key=None,
+        policy_server_url="http://dummy",
+        log_server_url="http://dummy",
+    )
+
+    capsys.readouterr()
+    plugin.fetch_policy(tool_context={"headers": {"Authorization": f"Bearer {token}"}})
+
+    output = capsys.readouterr().out
+    assert "정책 로드 완료" in output
+    assert "fetch-log" in output
+    assert "admin" in output

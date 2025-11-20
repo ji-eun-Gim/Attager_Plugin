@@ -55,8 +55,9 @@ class PolicyEnforcementPlugin(BasePlugin):
     # ------------------------------------------------------------------
     # Policy retrieval helpers
     # ------------------------------------------------------------------
-    def fetch_policy(self) -> None:
+    def fetch_policy(self, *, tool_context: Any = None, tool_args: Optional[Dict[str, Any]] = None) -> None:
         """Fetch the latest IAM policy for the configured agent."""
+        token_for_logging = self._extract_auth_token(tool_context, tool_args or {})
         try:
             resp = requests.get(
                 f"{self.policy_server_url}/api/iam/policy/{self.agent_id}",
@@ -64,7 +65,7 @@ class PolicyEnforcementPlugin(BasePlugin):
             )
             resp.raise_for_status()
             self.policy = resp.json()
-            print(f"[PolicyPlugin] {self.agent_id} 정책 로드 완료")
+            self._log_policy_fetch(token_for_logging)
         except Exception as exc:  # pragma: no cover - network failures during runtime
             print(f"[PolicyPlugin] 정책 로드 실패: {exc}")
             self.policy = {}
@@ -335,6 +336,19 @@ class PolicyEnforcementPlugin(BasePlugin):
     # ------------------------------------------------------------------
     # Authentication helpers
     # ------------------------------------------------------------------
+    def _log_policy_fetch(self, token: str) -> None:
+        base_message = f"[PolicyPlugin] {self.agent_id} 정책 로드 완료"
+
+        if not token:
+            print(f"{base_message} (auth_token=<none>)")
+            return
+
+        claims = self._decode_jwt(token)
+        roles = self._extract_roles_from_claims(claims)
+        subject = claims.get("sub") or claims.get("email") or claims.get("user") or "<unknown>"
+        token_preview = token if len(token) <= 18 else f"{token[:10]}...{token[-6:]}"
+        print(f"{base_message} (subject={subject}, roles={roles or []}, token={token_preview})")
+
     def _capture_auth_from_context(self, callback_context: Any) -> None:
         token = self._extract_token_from_container(callback_context)
         if token:
