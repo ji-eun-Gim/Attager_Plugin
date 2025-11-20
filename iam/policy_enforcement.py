@@ -380,6 +380,8 @@ class PolicyEnforcementPlugin(BasePlugin):
             return {}
         claims = self._decode_jwt(token)
         if claims:
+            if token != self._last_auth_token:
+                self._log_token_inspection(token, claims)
             self._last_auth_token = token
         return claims
 
@@ -398,6 +400,16 @@ class PolicyEnforcementPlugin(BasePlugin):
         except Exception as exc:  # pragma: no cover - runtime token parsing
             print(f"[PolicyPlugin] JWT decode 실패: {exc}")
             return {}
+
+    def _log_token_inspection(self, token: str, claims: Dict[str, Any]) -> None:
+        roles = self._extract_roles_from_claims(claims)
+        subject = claims.get("sub") or claims.get("email") or claims.get("user")
+        token_preview = token if len(token) <= 18 else f"{token[:10]}...{token[-6:]}"
+        print(
+            "[PolicyPlugin][{}] JWT 로드: sub={}, roles={}, token={}".format(
+                self.agent_id, subject or "<unknown>", roles or [], token_preview
+            )
+        )
 
     def _normalize_required_roles(self, required_roles: Any) -> list[str]:
         if not required_roles:
