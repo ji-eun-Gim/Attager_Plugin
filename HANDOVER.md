@@ -173,6 +173,7 @@ python Orchestrator_plugin/server_redis.py
 - 로그 고도화(예: ElasticSearch 연동) 및 IAM 정책 스키마 버전 관리가 후속 과제로 남아 있음
 - Kubernetes 이전을 고려할 경우, Redis 2종을 각기 StatefulSet으로 구성하고 시드 잡(CronJob) 분리 권장
 - IAM 공통 모듈(`iam/`)은 모든 컨테이너에서 동일 경로(`/app/iam`)로 복사하거나 마운트해야 하며, 신규 Dockerfile 작성 시 `COPY iam /app/iam` 및 루트 `requirements.txt` 설치를 필수로 포함하세요.
+- 정책 플러그인은 JWT를 다단계 컨텍스트에서 추출해 정책 로드 로그에 토큰 subject/roles/프리뷰를 표기합니다. Docker 로그에서 `[PolicyPlugin] orchestrator 정책 로드 완료 (auth_token=...)` 메시지가 비어 있으면 클라이언트→오케스트레이터→에이전트 헤더 체인을 점검하세요.
 
 ## 11. A2A 보안 솔루션 적용 주의사항
 - **보안 솔루션 모듈 분리**: A2A 환경에서 공통으로 사용하는 IAM 보안 컴포넌트는 `iam/` 패키지에 집약되어 있습니다. 새로운 에이전트나 오케스트레이터에서 정책 플러그인을 사용할 때는 반드시 `from iam.policy_enforcement import PolicyEnforcementPlugin` 형태로 임포트해 주세요.
@@ -189,6 +190,7 @@ python Orchestrator_plugin/server_redis.py
 - [ ] 오케스트레이터 클라이언트 `/login`→`/chat` 흐름에서 세션 쿠키가 설정되고 `/api/session`에 `token_type`/`access_token`/`email`이 노출되는지 확인
 - [ ] `/api/chat` 경로로 전달되는 요청 헤더에 `Authorization`과 `X-User-Email`이 포함되는지 샌드박스 에이전트 호출 로그로 검증
 - [ ] 보안 정책 변경 후에는 `PolicyEnforcementPlugin.reload_policy_cache()` 호출 또는 정책 서버 재기동으로 최신 룰이 적용되었는지 테스트 시나리오(예: 샌드박스 에이전트 호출)로 확인
+- [ ] Docker 로그에서 `[PolicyPlugin] orchestrator 정책 로드 완료 (auth_token=...)` 메시지에 subject/roles가 표시되는지 확인하고, 비어 있으면 오케스트레이터가 전달하는 헤더(Authorization/메타데이터) 체인을 점검
 
 > 위 체크리스트는 후속 LLM/개발자가 동일한 보안 모듈 기반으로 작업할 때 발생할 수 있는 호환성 문제를 선제적으로 방지하기 위한 최소 점검 항목입니다.
 ---
