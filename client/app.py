@@ -6,9 +6,9 @@ from pathlib import Path
 from typing import List
 
 import requests
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import Cookie, FastAPI, Header, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -18,6 +18,9 @@ STATIC_DIR = BASE_DIR / "static"
 
 ORCHESTRATOR_RPC_URL = os.getenv("ORCHESTRATOR_RPC_URL", "http://localhost:10000/").rstrip("/") + "/"
 JWT_SERVER_URL = os.getenv("JWT_SERVER_URL", "http://localhost:8011").rstrip("/")
+JWT_COOKIE_NAME = os.getenv("JWT_COOKIE_NAME", "access_token")
+JWT_COOKIE_MAX_AGE = int(os.getenv("JWT_COOKIE_MAX_AGE", "3600"))
+JWT_COOKIE_SECURE = os.getenv("JWT_COOKIE_SECURE", "false").lower() in {"1", "true", "yes"}
 
 app = FastAPI(title="Orchestrator Chat Client")
 app.add_middleware(
@@ -60,9 +63,24 @@ class LoginResponse(BaseModel):
     user: UserProfile
 
 
-@app.get("/", response_class=FileResponse)
-async def serve_index() -> FileResponse:
-    return FileResponse(PUBLIC_DIR / "index.html")
+class SessionResponse(BaseModel):
+    authenticated: bool
+    user: UserProfile | None = None
+
+
+@app.get("/", include_in_schema=False)
+async def redirect_root() -> RedirectResponse:
+    return RedirectResponse(url="/login")
+
+
+@app.get("/login", response_class=FileResponse)
+async def serve_login() -> FileResponse:
+    return FileResponse(PUBLIC_DIR / "login.html")
+
+
+@app.get("/chat", response_class=FileResponse)
+async def serve_chat() -> FileResponse:
+    return FileResponse(PUBLIC_DIR / "chat.html")
 
 
 @app.get("/api/meta", response_model=MetaResponse)
@@ -181,7 +199,7 @@ def _request_jwt_profile(token: str) -> dict:
 
 
 @app.post("/api/login", response_model=LoginResponse)
-def login(body: LoginRequest) -> LoginResponse:
+def login(body: LoginRequest, response: Response) -> LoginResponse:
     token_payload = _request_jwt_token(body.email, body.password)
     access_token = token_payload.get("access_token")
     token_type = token_payload.get("token_type", "bearer")
@@ -195,7 +213,45 @@ def login(body: LoginRequest) -> LoginResponse:
         raise HTTPException(status_code=502, detail="JWT 서버가 사용자 정보를 반환하지 않았습니다")
 
     user_profile = UserProfile(email=email, tenants=tenants)
+
+    response.set_cookie(
+        key=JWT_COOKIE_NAME,
+        value=access_token,
+        httponly=True,
+        secure=JWT_COOKIE_SECURE,
+        samesite="lax",
+        max_age=JWT_COOKIE_MAX_AGE,
+        path="/",
+    )
+
     return LoginResponse(access_token=access_token, token_type=token_type, user=user_profile)
+
+
+@app.post("/api/logout")
+def logout(response: Response) -> dict:
+    response.delete_cookie(
+        key=JWT_COOKIE_NAME,
+        path="/",
+        samesite="lax",
+        secure=JWT_COOKIE_SECURE,
+        httponly=True,
+    )
+    return {"message": "logged_out"}
+
+
+@app.get("/api/session", response_model=SessionResponse)
+def session_state(access_token: str | None = Cookie(default=None)) -> SessionResponse:
+    token = _extract_token(access_token)
+    if not token:
+        return SessionResponse(authenticated=False, user=None)
+
+    user_payload = _request_jwt_profile(token)
+    email = user_payload.get("email")
+    tenants = _normalize_tenants(user_payload.get("tenant"))
+    if not email:
+        return SessionResponse(authenticated=False, user=None)
+
+    return SessionResponse(authenticated=True, user=UserProfile(email=email, tenants=tenants))
 
 
 async def _send_rpc(payload: dict, headers: dict | None = None) -> dict:
@@ -226,12 +282,12 @@ async def _send_rpc(payload: dict, headers: dict | None = None) -> dict:
         raise HTTPException(status_code=502, detail="오케스트레이터 응답이 JSON이 아닙니다") from exc
 
 
-def _extract_token(authorization: str | None) -> str:
-    if not authorization:
+def _extract_token(raw: str | None) -> str:
+    if not raw:
         return ""
-    if authorization.lower().startswith("bearer "):
-        return authorization[7:].strip()
-    return authorization.strip()
+    if raw.lower().startswith("bearer "):
+        return raw[7:].strip()
+    return raw.strip()
 
 
 @app.post("/api/chat", response_model=ChatResponse)
@@ -239,8 +295,9 @@ async def send_message(
     body: ChatRequest,
     authorization: str | None = Header(default=None),
     x_user_email: str | None = Header(default=None, alias="X-User-Email"),
+    access_token: str | None = Cookie(default=None, alias=JWT_COOKIE_NAME),
 ) -> ChatResponse:
-    token = _extract_token(authorization)
+    token = _extract_token(authorization) or _extract_token(access_token)
     if not token:
         raise HTTPException(status_code=401, detail="로그인 후 이용해 주세요.")
 
@@ -252,7 +309,7 @@ async def send_message(
     rpc_result = await _send_rpc(
         payload,
         headers={
-            "Authorization": authorization,
+            "Authorization": authorization or f"Bearer {token}",
             "X-User-Email": x_user_email or "",
         },
     )
