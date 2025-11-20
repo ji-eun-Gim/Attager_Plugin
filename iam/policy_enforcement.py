@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 from typing import Any, Dict, Iterable, Optional, Sequence
 
@@ -149,7 +150,13 @@ class PolicyEnforcementPlugin(BasePlugin):
     ) -> Optional[Dict[str, Any]]:
         """Validate tool invocations against IAM tool rules."""
         self._capture_auth_from_context(callback_context or tool_context)
-        self.fetch_policy(tool_context=callback_context or tool_context, tool_args=tool_args)
+        callback = callback_context or tool_context
+        self.fetch_policy(tool_context=callback, tool_args=tool_args)
+
+        token_for_tools = self._extract_auth_token(callback, tool_args)
+        if token_for_tools and hasattr(tool_context, "state"):
+            with contextlib.suppress(Exception):
+                tool_context.state.setdefault("auth_token", token_for_tools)
 
         if not self._policy_enabled():
             return None

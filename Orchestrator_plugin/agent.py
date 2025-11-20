@@ -132,8 +132,14 @@ async def call_remote_agent(tool_context, agent_name: str, task: str):
         return {"error": f"Agent {agent_name} not found"}
 
     # 2. 클라이언트 준비
+    auth_token = ""
+    if hasattr(tool_context, "state"):
+        auth_token = tool_context.state.get("auth_token", "") or ""
+
+    default_headers = {"Authorization": f"Bearer {auth_token}"} if auth_token else None
+
     try:
-        async with httpx.AsyncClient(timeout=30.0) as httpx_client:
+        async with httpx.AsyncClient(timeout=30.0, headers=default_headers) as httpx_client:
             from a2a.client import A2AClient
             client = A2AClient(httpx_client=httpx_client, agent_card=card)
 
