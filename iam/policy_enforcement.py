@@ -222,20 +222,24 @@ class PolicyEnforcementPlugin(BasePlugin):
         if not payload_hash:
             return None
 
-        tenant, email = self._extract_replay_subject(callback_context)
-        if not tenant or not email:
+        email = self._extract_replay_subject(callback_context)
+        if not email:
             return None
 
-        key = self._build_replay_key(tenant, email, payload_hash)
+        key = self._build_replay_key(email, payload_hash)
         now = time.monotonic()
         replay_detected = False
 
         with self._replay_lock:
             self._cleanup_replay_cache(now)
             last_seen = self._replay_cache.get(key)
-            if last_seen and now - last_seen <= self._replay_ttl:
-                replay_detected = True
-            self._replay_cache[key] = now
+            if last_seen is None:
+                self._replay_cache[key] = now
+            else:
+                if now - last_seen <= self._replay_ttl:
+                    replay_detected = True
+                else:
+                    self._replay_cache[key] = now
             self._replay_cache.move_to_end(key)
 
         if not replay_detected:
@@ -633,8 +637,16 @@ class PolicyEnforcementPlugin(BasePlugin):
         if not contents:
             return ""
 
+        target_contents: list[Any] = []
+        for content in reversed(contents):
+            if getattr(content, "role", None) == "user":
+                target_contents = [content]
+                break
+        if not target_contents:
+            target_contents = list(contents)
+
         segments: list[str] = []
-        for content in contents:
+        for content in target_contents:
             role = getattr(content, "role", None) or "unknown"
             parts = getattr(content, "parts", None) or []
             for part in parts:
@@ -674,7 +686,6 @@ class PolicyEnforcementPlugin(BasePlugin):
 
     def _extract_replay_subject(self, callback_context: Any) -> Tuple[str, str]:
         claims = self._get_auth_claims(callback_context, {}) if callback_context else {}
-        tenant = str(claims.get("tenant") or claims.get("org") or "").strip()
         email = str(
             claims.get("email")
             or claims.get("sub")
@@ -682,10 +693,11 @@ class PolicyEnforcementPlugin(BasePlugin):
             or claims.get("principal")
             or ""
         ).strip()
-        return tenant, email
 
-    def _build_replay_key(self, tenant: str, email: str, payload_hash: str) -> str:
-        return f"{tenant}|{email}|{payload_hash}"
+        return email
+
+    def _build_replay_key(self, email: str, payload_hash: str) -> str:
+        return f"{email}|{payload_hash}"
 
     def _cleanup_replay_cache(self, now: float) -> None:
         expire_before = now - self._replay_ttl
